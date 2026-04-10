@@ -1024,7 +1024,7 @@ function startScanner(targetFieldId, doSearch) {
 
       html5QrCode.start(
         selectedDeviceId, 
-        { fps: 10, qrbox: { width: 250, height: 250} },
+        { fps: 15, qrbox: { width: 250, height: 250} },
         (decodedText) => {
           playBeep(); 
           let finalCode = (currentScanTargetId !== "account") ? parseMeterBarcode(decodedText) : decodedText;
