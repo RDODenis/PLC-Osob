@@ -325,15 +325,14 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
 <div id="offlineBanner">🚫 Немає інтернету. Робота в Офлайн режимі.</div>
 
 <script>
+<script>
 // ==========================================
 // ⚠️ ТУТ ВСТАВ ПОСИЛАННЯ З GOOGLE APPS SCRIPT
 // ==========================================
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyAphQ0kPCVwkvMHXHSBBaQjl3Gqv-BzVorwPg13JH3XwrAb1AohUFuT3uQgxB7AF1NQQ/exec"; 
-
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyo03Ro54ksuo5sXJNkLYzPZHfEDZ6e1o8QuZBHyum9eZSmdCeXBtYgpcr8ncUIPDYa4g/exec"; 
 
 // ==========================================
-// ОПТИМІЗОВАНИЙ МІСТ ДЛЯ ШВИДКОГО ЗВ'ЯЗКУ З GOOGLE
-// (Обхід CORS Preflight для миттєвих запитів)
+// ОПТИМІЗОВАНИЙ МІСТ ДЛЯ ШВИДКОГО ЗВ'ЯЗКУ
 // ==========================================
 async function sendToGoogle(action, payloadData = {}) {
   let formData = new URLSearchParams();
@@ -375,13 +374,44 @@ const METER_TYPES = [
 
 let workerTab = ""; let workerName = ""; let currentAccount = "";
 
+// ==========================================
+// АВТОМАТИЧНИЙ ВХІД + ФОНОВА ПЕРЕВІРКА БЕЗПЕКИ
+// ==========================================
 window.onload = function() {
   const savedTab = localStorage.getItem("workerTab");
   const savedPass = localStorage.getItem("workerPass");
-  if (savedTab) document.getElementById("tab").value = savedTab;
-  if (savedPass) document.getElementById("pass").value = savedPass;
+  const savedName = localStorage.getItem("workerName");
+
+  if (savedTab && savedPass && savedName) {
+    workerTab = savedTab;
+    workerName = savedName;
+    document.getElementById("currentUserTab").innerText = workerTab;
+    document.getElementById("currentUser").innerText = workerName;
+    document.getElementById("login").classList.add("hidden");
+    document.getElementById("app").classList.remove("hidden");
+
+    // ФОНОВА ПЕРЕВІРКА ДОСТУПУ!
+    if (navigator.onLine) {
+      sendToGoogle("login", { tab: savedTab, pass: savedPass }).then(res => {
+        if (!res.success) {
+          alert("Ваш доступ анульовано або пароль змінено!");
+          logout();
+        }
+      }).catch(e => {}); // ігноруємо помилки мережі
+    }
+  } else if (savedTab) {
+    document.getElementById("tab").value = savedTab;
+  }
+  
   updateCountersUI();
 };
+
+function logout() {
+  localStorage.removeItem("workerTab");
+  localStorage.removeItem("workerPass");
+  localStorage.removeItem("workerName");
+  location.reload();
+}
 
 // ==========================================
 // ЛОГІКА: КЕРУВАННЯ ВЛАСНИМИ ПЛОМБАМИ / МАГНІТАМИ
@@ -415,7 +445,7 @@ function generatePlombs() {
   let matchEnd = end.match(/^([A-ZА-ЯІЇЄҐ]*?)(\d+)$/);
 
   if(!matchStart || !matchEnd) return alert("Формат має бути: Букви + Цифри (напр. С12345)");
-  if(matchStart[1] !== matchEnd[1]) return alert("Префікси (букви) пломб не співпадають!");
+  if(matchStart[1] !== matchEnd[1]) return alert("Префікси (букви) не співпадають!");
 
   let prefix = matchStart[1];
   let numStart = parseInt(matchStart[2], 10);
@@ -424,7 +454,7 @@ function generatePlombs() {
 
   if(numStart > numEnd) return alert("Початковий номер більший за кінцевий!");
   if(numEnd - numStart > 100) {
-    if(!confirm("Ви збираєтесь додати більше 100 пломб. Продовжити?")) return;
+    if(!confirm("Ви збираєтесь додати більше 100 штук. Продовжити?")) return;
   }
 
   let storageKey = currentModalType === 'plomb' ? 'myPlombs' : 'myMagnets';
@@ -466,7 +496,7 @@ function updateCountersUI() {
 }
 
 function clearPlombs() {
-  if(confirm("Ви впевнені, що хочете видалити список?")) {
+  if(confirm("Ви впевнені, що хочете очистити цей список?")) {
     let storageKey = currentModalType === 'plomb' ? 'myPlombs' : 'myMagnets';
     localStorage.removeItem(storageKey);
     updateCountersUI();
@@ -503,9 +533,17 @@ function buildHints(inputEl, type, filterQuery = "") {
   list.forEach(p => {
     let div = document.createElement("div"); 
     div.className = "meterTypeItem"; 
-    if(usedList.includes(p.toUpperCase())) div.classList.add("used-plomb");
+    
+    if(usedList.includes(p.toUpperCase())) {
+      div.classList.add("used-plomb");
+    }
+
     div.textContent = p;
-    div.onmousedown = function(e){ e.preventDefault(); inputEl.value = p; box.classList.add("hidden"); };
+    div.onmousedown = function(e){ 
+      e.preventDefault(); 
+      inputEl.value = p; 
+      box.classList.add("hidden"); 
+    };
     box.appendChild(div);
   });
   
@@ -630,7 +668,7 @@ loginInputs.forEach(input => {
 });
 
 // ==========================================
-// ВХІД (З оптимізованим запитом)
+// ВХІД
 // ==========================================
 async function doLogin() {
   const tab = document.getElementById("tab").value.trim();
@@ -674,7 +712,7 @@ async function doLogin() {
 }
 
 // ==========================================
-// ПОШУК (З оптимізованим запитом)
+// ПОШУК (З ПЕРЕВІРКОЮ БЕЗПЕКИ)
 // ==========================================
 async function search() {
   const acc = document.getElementById("account").value.trim();
@@ -691,7 +729,17 @@ async function search() {
   btn.innerText = "Шукаю...";
 
   try {
-    const res = await sendToGoogle("findAccountFast", { account: acc });
+    const tab = localStorage.getItem("workerTab");
+    const pass = localStorage.getItem("workerPass");
+
+    const res = await sendToGoogle("findAccountFast", { account: acc, tab: tab, pass: pass });
+
+    if (res.error) {
+      alert(res.error);
+      logout();
+      return;
+    }
+
     if (res.found) {
       currentAccount = res.data.account;
       fillDataForStep1(res.data);
@@ -792,7 +840,7 @@ function filterMeterTypes(value, inputId, hintBoxId){
 }
 
 // ==========================================
-// ЗБЕРЕЖЕННЯ (З оптимізованим запитом)
+// ЗБЕРЕЖЕННЯ
 // ==========================================
 async function saveData() {
   const getVal = (id) => document.getElementById(id).value.trim();
@@ -866,7 +914,7 @@ async function saveData() {
 }
 
 // ==========================================
-// СИНХРОНІЗАЦІЯ ОФЛАЙН ДАНИХ (З оптимізованим запитом)
+// СИНХРОНІЗАЦІЯ ОФЛАЙН ДАНИХ
 // ==========================================
 async function syncOfflineData() {
   if(!navigator.onLine) return alert("❌ Для відправки потрібен інтернет!");
@@ -895,7 +943,7 @@ async function syncOfflineData() {
 }
 
 // ==========================================
-// ТВІЙ ОРИГІНАЛЬНИЙ СКАНЕР ШТРИХКОДІВ
+// СКАНЕР ШТРИХКОДІВ
 // ==========================================
 let html5QrCode = null;
 let isTorchOn = false;
@@ -995,7 +1043,4 @@ function parseMeterBarcode(rawCode) {
   }
   return code;
 }
-
 </script>
-</body>
-</html>
