@@ -343,7 +343,15 @@ async function sendToGoogle(action, payloadData = {}) {
     body: formData,
     headers: { "Content-Type": "application/x-www-form-urlencoded" }
   });
-  return await response.json();
+
+  const text = await response.text(); // Спочатку читаємо як текст!
+  
+  try {
+    return JSON.parse(text); // Пробуємо перетворити в JSON
+  } catch (e) {
+    console.error("Відповідь Гугла не є JSON:", text);
+    throw new Error("Сервер Гугла завантажується, спробуйте ще раз.");
+  }
 }
 
 const METER_TYPES = [
@@ -706,8 +714,13 @@ async function doLogin() {
       document.getElementById("login").classList.add("hidden");
       document.getElementById("app").classList.remove("hidden");
       updateOfflineCount();
-    } else alert(res.message);
-  } catch (e) { alert("Помилка зв'язку!"); }
+    } else {
+      alert(res.message);
+    }
+  } catch (e) { 
+    // ТЕПЕР МИ ПОБАЧИМО РЕАЛЬНУ ПОМИЛКУ, А НЕ ПРОСТО "Помилка зв'язку"
+    alert("Помилка: " + e.message); 
+  }
   btn.innerText = "Увійти";
 }
 
@@ -1024,7 +1037,7 @@ function startScanner(targetFieldId, doSearch) {
         },
         () => {} 
       ).then(() => {
-        setTimeout(() => setZoom(2.5), 1200);
+        setTimeout(() => setZoom(2.5), 500);
       }).catch(err => {
         alert("Помилка камери: " + err);
         stopScanner();
