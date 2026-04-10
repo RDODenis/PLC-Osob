@@ -162,7 +162,6 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
       </div>
       <div class="fieldLabel">Заводський номер</div>
       <div class="input-with-scanner">
-        <!-- ТУТ ДОДАНО ЦИФРОВУ КЛАВІАТУРУ -->
         <input id="remNum" inputmode="numeric">
         <button class="scan-btn-outer" onclick="startScanner('remNum', false)">
           <svg class="scan-icon" viewBox="0 0 24 24"><path d="M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2zm-9 4h2v10h-2V7zm-4 0h2v10H6V7zm10 0h2v10h-2V7zm-6 0h4v10h-4V7z"/></svg>
@@ -209,7 +208,6 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
       </div>
       <div class="fieldLabel">Заводський номер</div>
       <div class="input-with-scanner">
-        <!-- ТУТ ДОДАНО ЦИФРОВУ КЛАВІАТУРУ -->
         <input id="instNum" inputmode="numeric">
         <button class="scan-btn-outer" onclick="startScanner('instNum', false)">
           <svg class="scan-icon" viewBox="0 0 24 24"><path d="M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2zm-9 4h2v10h-2V7zm-4 0h2v10H6V7zm10 0h2v10h-2V7zm-6 0h4v10h-4V7z"/></svg>
@@ -330,7 +328,6 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
 
 <div id="offlineBanner">🚫 Немає інтернету. Робота в Офлайн режимі.</div>
 
-
 <script>
 // ==========================================
 // ⚠️ ТУТ ВСТАВ ПОСИЛАННЯ З GOOGLE APPS SCRIPT
@@ -338,25 +335,32 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwEZRb4A-F9GvKwuxwhJBenVKVWb6BT0sU8sraqKcba1gaEqKxbUKBALNrpUD1xgf4a0A/exec"; 
 
 // ==========================================
-// ОПТИМІЗОВАНИЙ МІСТ (З надійним парсингом)
+// ТВІЙ СТАРИЙ, ПЕРЕВІРЕНИЙ МІСТ ДЛЯ ЗВ'ЯЗКУ
 // ==========================================
 async function sendToGoogle(action, payloadData = {}) {
-  let formData = new URLSearchParams();
-  formData.append("payload", JSON.stringify({ action: action, ...payloadData }));
+  return new Promise((resolve, reject) => {
+    let formData = new URLSearchParams();
+    formData.append("payload", JSON.stringify({ action: action, ...payloadData }));
 
-  const response = await fetch(SCRIPT_URL, {
-    method: "POST",
-    body: formData,
-    headers: { "Content-Type": "application/x-www-form-urlencoded" }
+    fetch(SCRIPT_URL, {
+      method: "POST",
+      body: formData,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" }
+    })
+    .then(res => res.text())
+    .then(text => {
+      try {
+        let data = JSON.parse(text);
+        resolve(data);
+      } catch (e) {
+        // Якщо Гугл відповів не JSON (Холодний старт) - ловимо помилку м'яко!
+        reject(new Error("Сервер прокидається. Натисніть кнопку ще раз."));
+      }
+    })
+    .catch(err => {
+      reject(err);
+    });
   });
-
-  const text = await response.text(); 
-  try {
-    return JSON.parse(text); 
-  } catch (e) {
-    console.error("Помилка парсингу:", text);
-    throw new Error("Сервер Гугла завантажується. Натисніть ще раз.");
-  }
 }
 
 const METER_TYPES = [
@@ -388,7 +392,7 @@ const METER_TYPES = [
 let workerTab = ""; let workerName = ""; let currentAccount = "";
 
 // ==========================================
-// АВТОМАТИЧНИЙ ВХІД + ФОНОВА ПЕРЕВІРКА БЕЗПЕКИ
+// АВТОМАТИЧНИЙ ВХІД
 // ==========================================
 window.onload = function() {
   const savedTab = localStorage.getItem("workerTab");
@@ -402,15 +406,6 @@ window.onload = function() {
     document.getElementById("currentUser").innerText = workerName;
     document.getElementById("login").classList.add("hidden");
     document.getElementById("app").classList.remove("hidden");
-
-    if (navigator.onLine) {
-      sendToGoogle("login", { tab: savedTab, pass: savedPass }).then(res => {
-        if (!res.success) {
-          alert("Ваш доступ анульовано або пароль змінено!");
-          logout();
-        }
-      }).catch(e => {}); 
-    }
   } else if (savedTab) {
     document.getElementById("tab").value = savedTab;
   }
@@ -693,7 +688,7 @@ loginInputs.forEach(input => {
 });
 
 // ==========================================
-// ВХІД (З надійним виводом помилок)
+// ВХІД
 // ==========================================
 async function doLogin() {
   const tab = document.getElementById("tab").value.trim();
@@ -715,7 +710,7 @@ async function doLogin() {
       return;
     } else {
       btn.innerText = "Увійти";
-      return alert("Немає інтернету для першої перевірки пароля!");
+      return alert("Немає інтернету для входу!");
     }
   }
 
@@ -739,7 +734,7 @@ async function doLogin() {
 }
 
 // ==========================================
-// ПОШУК І ЗАПОВНЕННЯ 
+// ПОШУК
 // ==========================================
 async function search() {
   const acc = document.getElementById("account").value.trim();
@@ -757,13 +752,12 @@ async function search() {
 
   try {
     const res = await sendToGoogle("findAccountFast", { account: acc });
-
     if (res.found) {
       currentAccount = res.data.account;
       fillDataForStep1(res.data);
       showScreen('step1');
     } else alert("Рахунок не знайдено!");
-  } catch (e) { alert("Помилка зв'язку!"); }
+  } catch (e) { alert("Помилка: " + e.message); }
   btn.innerText = "Знайти рахунок";
 }
 
@@ -797,7 +791,7 @@ function fillDataForStep1(d) {
 }
 
 // ==========================================
-// НАВІГАЦІЯ ТА ЗНАЧЕННЯ ЗА ЗАМОВЧУВАННЯМ
+// НАВІГАЦІЯ
 // ==========================================
 function showScreen(id) {
   ["searchBlock", "step1", "step2"].forEach(s => document.getElementById(s).classList.add("hidden"));
@@ -818,10 +812,9 @@ function goToStep2() {
 
   showScreen('step2'); 
   document.getElementById("instType").value = "NIK2104 AP2T.1802.MC.11";
-  document.getElementById("instT0").value = "000000";
-  document.getElementById("instT1").value = "000000";
-  document.getElementById("instT2").value = "000000";
-  document.getElementById("instT3").value = "000000";
+  document.getElementById("instT0").value = "0000000";
+  document.getElementById("instT1").value = "0000000";
+  document.getElementById("instT2").value = "0000000";
 }
 function goBackToStep1() { showScreen('step1'); }
 
@@ -859,7 +852,7 @@ function filterMeterTypes(value, inputId, hintBoxId){
 }
 
 // ==========================================
-// ЗБЕРЕЖЕННЯ (З обов'язковими полями PLC)
+// ЗБЕРЕЖЕННЯ
 // ==========================================
 async function saveData() {
   const getVal = (id) => document.getElementById(id).value.trim();
@@ -887,7 +880,6 @@ async function saveData() {
 
   const payload = {
     worker: workerTab, 
-    pass: localStorage.getItem("workerPass"), 
     account: currentAccount,
     
     removedMeterType: getVal("remType"), removedMeterNumber: getVal("remNum"),
@@ -929,7 +921,7 @@ async function saveData() {
     } else {
       btn.style.display = "block";
       hint.innerText = "";
-      alert(res.message); 
+      alert(res.message || "Помилка збереження"); 
     }
   } catch (e) {
     let offlineData = JSON.parse(localStorage.getItem('offlineDataPLC') || '[]');
