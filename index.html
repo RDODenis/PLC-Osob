@@ -1024,7 +1024,7 @@ function startScanner(targetFieldId, doSearch) {
 
       html5QrCode.start(
         selectedDeviceId, 
-        { fps: 10, qrbox: { width: 250, height: 100 } },
+        { fps: 10, qrbox: { width: 250, height: 150} },
         (decodedText) => {
           playBeep(); 
           let finalCode = (currentScanTargetId !== "account") ? parseMeterBarcode(decodedText) : decodedText;
@@ -1037,7 +1037,7 @@ function startScanner(targetFieldId, doSearch) {
         },
         () => {} 
       ).then(() => {
-        setTimeout(() => setZoom(2.5), 500);
+        setTimeout(() => setZoom(2.5), 300);
       }).catch(err => {
         alert("Помилка камери: " + err);
         stopScanner();
