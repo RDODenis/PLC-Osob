@@ -105,6 +105,17 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
 .journal-time { font-size: 12px; color: #888; }
 .journal-pib { color: #333; margin-bottom: 3px; }
 .journal-meters { font-size: 12px; color: #555; }
+.journal-item-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.icon-btn { background:none; border:none; cursor:pointer; padding:6px; display:flex; align-items:center; justify-content:center; border-radius:50%; flex-shrink:0; }
+.icon-btn:active { background:#eee; }
+.icon-btn svg { width:20px; height:20px; }
+.icon-share svg { fill:#1565c0; }
+.icon-delete svg { fill:#888; }
+.journal-top-mid { flex:1; display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
+
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; display:flex; align-items:center; justify-content:center; }
+.modal-overlay.hidden { display:none; }
+.modal-card { background:white; border-radius:12px; padding:20px; width:85%; max-width:320px; text-align:center; }
 .badge-online { background: #e8f5e9; color: #2e7d32; font-size: 11px; padding: 2px 8px; border-radius: 20px; }
 .badge-offline { background: #fff3e0; color: #e65100; font-size: 11px; padding: 2px 8px; border-radius: 20px; }
 .offline-item { border: 1px solid #e0e0e0; border-radius: 10px; padding: 10px 12px; font-size: 14px; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
@@ -396,6 +407,15 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
       <button onclick="document.getElementById('journalModal').classList.add('hidden')" style="width:auto;min-height:auto;background:#eee;color:#333;padding:6px 14px;margin:0;font-size:14px;">✕ Закрити</button>
     </div>
     <div class="journal-list" id="journalList"></div>
+  </div>
+</div>
+
+  <div id="entryActionsModal" class="hidden modal-overlay">
+  <div class="modal-card">
+    <div style="font-size:16px; font-weight:bold; margin-bottom:16px;">Що зробити із записом?</div>
+    <button id="btnEditEntry" style="width:100%; padding:12px; margin-bottom:10px; background:#2196F3; color:white; border:none; border-radius:8px; font-size:16px; font-weight:bold;">✏️ Правити</button>
+    <button id="btnDeleteEntry" style="width:100%; padding:12px; margin-bottom:10px; background:#e53935; color:white; border:none; border-radius:8px; font-size:16px; font-weight:bold;">🗑 Видалити</button>
+    <button onclick="closeEntryActionsModal()" style="width:100%; padding:10px; background:#eee; color:#333; border:none; border-radius:8px; font-size:14px;">Скасувати</button>
   </div>
 </div>
 
@@ -1325,7 +1345,7 @@ function renderJournalForDate() {
     return;
   }
   
-  container.innerHTML = dayEntries.map((e, i) => {
+ container.innerHTML = dayEntries.map((e, i) => {
     const t = new Date(e.ts);
     const timeStr = t.getHours().toString().padStart(2,'0') + ':' + t.getMinutes().toString().padStart(2,'0');
     const badge = e.status === 'online'
@@ -1333,8 +1353,16 @@ function renderJournalForDate() {
       : '<span class="badge-offline">⚠ офлайн</span>';
     return `<div class="journal-item">
       <div class="journal-item-top">
-        <span class="journal-acc">О/р: ${e.account}</span>
-        <span class="journal-time">${timeStr} ${badge}</span>
+        <button class="icon-btn icon-share" onclick="shareJournalEntry(${i}, '${selectedDate}')" title="Надіслати">
+          <svg viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg>
+        </button>
+        <div class="journal-top-mid">
+          <span class="journal-acc">О/р: ${e.account}</span>
+          <span class="journal-time">${timeStr} ${badge}</span>
+        </div>
+        <button class="icon-btn icon-delete" onclick="openEntryActions(${i}, '${selectedDate}')" title="Дії із записом">
+          <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+        </button>
       </div>
       
       <div class="journal-pib">${e.address || '—'}</div>
@@ -1345,10 +1373,6 @@ function renderJournalForDate() {
         ${e.installedPhotoUrl ? e.installedPhotoUrl.split('\n').filter(u => u.trim()).map((u, idx, arr) => `<a href="${u}" target="_blank" style="color:#1565c0;text-decoration:underline;">📷 Фото${arr.length > 1 ? ' ' + (idx+1) : ''}</a>`).join(' &nbsp;|&nbsp; ') + '<br>' : ''}
         ${buildPlombLine(e)}
       </div>
-      <button onclick="shareJournalEntry(${i}, '${selectedDate}')" 
-        style="margin-top:8px; width:100%; background:#25D366; color:white; border:none; border-radius:8px; padding:10px; font-size:14px; font-weight:bold; cursor:pointer;">
-        📤 Надіслати в месенджер
-      </button>
     </div>`;
   }).join('');
 }
