@@ -1015,8 +1015,11 @@ if (dupInst) {
   const vkp = checkSeal("remVkp", "instVkp"), opt = checkSeal("remOptop", "instOptop");
   const imp1 = checkSeal("remImp1", "instImp1"), imp2 = checkSeal("remImp2", "instImp2"), imp3 = checkSeal("remImp3", "instImp3");
 
+  const entryId = editingEntryId || generateEntryId();
+
   const payload = {
     worker: workerTab,
+    entryId: entryId,
     pib: document.getElementById("viewPib1").innerText,
     address: document.getElementById("viewAddr1").innerText,
     pass: localStorage.getItem("workerPass"), 
@@ -1035,15 +1038,8 @@ if (dupInst) {
     installedOther: getVal("instOther"),
     photoUrl: document.getElementById('photoUrl_removed').value.trim(),
     installedPhotoUrl: document.getElementById('photoUrl_installed').value.trim()
-
-    const entryId = editingEntryId || generateEntryId();
-
-  const payload = {
-    worker: workerTab,
-    entryId: entryId,
-    pib: document.getElementById("viewPib1").innerText,
   };
-
+  
   removeUsedPlombs([l.inst, f1.inst, f2.inst, vkp.inst, opt.inst], [imp1.inst, imp2.inst, imp3.inst]);
 
   const btn = document.getElementById("btnSaveMain");
