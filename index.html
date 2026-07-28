@@ -435,7 +435,7 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
 // ==========================================
 // ⚠️ ТУТ ВСТАВ ПОСИЛАННЯ З GOOGLE APPS SCRIPT
 // ==========================================
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyy-ksRvlilOXsaVd01diDn3s-t4Qtrn0LzDFSo9WKBlFgDOGnVYblWGCxJomiyhXXGdg/exec"; 
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwSEPvmQnNFECpNrIdY3lrDDsG_dbWCwBEmoH3ioBMkh2wfpSO0srnkwFma2vg1XdFAwg/exec"; 
 
 // ==========================================
 // ОПТИМІЗОВАНИЙ МІСТ ДЛЯ ШВИДКОГО ЗВ'ЯЗКУ
@@ -910,6 +910,9 @@ function goHome() {
   document.getElementById("account").value = "";
   document.getElementById("saveHint").innerText = "";
   resetPhotoUI();
+  editingEntryId = null;
+  editingJournalTs = null;
+  document.getElementById('btnSaveMain').textContent = '💾 Зберегти';
   showScreen('searchBlock'); 
   updateOfflineCount();
 }
@@ -1033,6 +1036,12 @@ if (dupInst) {
     photoUrl: document.getElementById('photoUrl_removed').value.trim(),
     installedPhotoUrl: document.getElementById('photoUrl_installed').value.trim()
 
+    const entryId = editingEntryId || generateEntryId();
+
+  const payload = {
+    worker: workerTab,
+    entryId: entryId,
+    pib: document.getElementById("viewPib1").innerText,
   };
 
   removeUsedPlombs([l.inst, f1.inst, f2.inst, vkp.inst, opt.inst], [imp1.inst, imp2.inst, imp3.inst]);
@@ -1040,7 +1049,37 @@ if (dupInst) {
   const btn = document.getElementById("btnSaveMain");
   const hint = document.getElementById("saveHint");
   btn.style.display = "none";
+
+  if (editingEntryId) {
+    hint.innerText = "⏳ Оновлення...";
+    try {
+      const res = await sendToGoogle('updateData', { data: payload });
+      if (res && res.success) {
+        updateJournalEntryInPlace(payload);
+        playSuccessSound();
+        hint.innerText = "✅ Запис оновлено!";
+        setTimeout(() => {
+          btn.style.display = "block";
+          btn.textContent = '💾 Зберегти';
+          editingEntryId = null;
+          editingJournalTs = null;
+          goHome();
+        }, 1500);
+      } else {
+        hint.innerText = "❌ " + (res && res.message ? res.message : "Помилка оновлення");
+        btn.style.display = "block";
+      }
+    } catch (err) {
+      hint.innerText = "❌ Немає з'єднання. Редагування можливе тільки онлайн.";
+      btn.style.display = "block";
+    }
+    return;
+  }
+
   hint.innerText = "⏳ Збереження...";
+  const btn = document.getElementById("btnSaveMain");
+  const hint = document.getElementById("saveHint");
+  btn.style.display = "none";
 
   if (!navigator.onLine) {
     let offlineData = JSON.parse(localStorage.getItem('offlineDataPLC') || '[]');
@@ -1281,7 +1320,8 @@ function addToJournal(payload, status) {
     installedImp2: payload.installedImp2 || '',
     installedImp3: payload.installedImp3 || '',
     photoUrl: payload.photoUrl || '',
-    installedPhotoUrl: payload.installedPhotoUrl || ''
+    installedPhotoUrl: payload.installedPhotoUrl || '',
+    entryId: payload.entryId || ''
   });
   localStorage.setItem('journalPLC', JSON.stringify(journal));
   updateJournalCount();
@@ -1294,6 +1334,30 @@ function updateJournalCount() {
   if (el) el.innerText = journal.filter(e => new Date(e.ts).toDateString() === today).length;
 }
 
+  let currentEntryContext = null;
+
+function openEntryActions(index, dateStr) {
+  currentEntryContext = { index, dateStr };
+  document.getElementById('entryActionsModal').classList.remove('hidden');
+}
+function closeEntryActionsModal() {
+  document.getElementById('entryActionsModal').classList.add('hidden');
+  currentEntryContext = null;
+}
+
+document.getElementById('btnDeleteEntry').addEventListener('click', function() {
+  if (!currentEntryContext) return;
+  if (confirm('Видалити цей запис із журналу?\n\nУ Google Таблиці запис ЗАЛИШИТЬСЯ без змін — видаляється тільки з журналу застосунку.')) {
+    deleteJournalEntry(currentEntryContext.index, currentEntryContext.dateStr);
+  }
+  closeEntryActionsModal();
+});
+
+document.getElementById('btnEditEntry').addEventListener('click', function() {
+  if (!currentEntryContext) return;
+  startEditEntry(currentEntryContext.index, currentEntryContext.dateStr);
+});
+  
 function openJournalModal() {
   let journal = JSON.parse(localStorage.getItem('journalPLC') || '[]');
   
@@ -1586,6 +1650,13 @@ function compressImage(file, maxSizeKB = 200, maxDimension = 1600) {
   removed:   { urls: [], max: 3 },
   installed: { urls: [], max: 3 }
 };
+
+  let editingEntryId = null;
+  let editingJournalTs = null;
+
+function generateEntryId() {
+  return Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
   
 async function uploadPhotoFile(file, slot) {
   const state = photoState[slot];
@@ -1679,6 +1750,108 @@ async function removePhoto(slot, index) {
   const statusEl = document.getElementById('uploadStatus_' + slot);
   statusEl.style.color = 'black';
   statusEl.textContent = `Фото видалено. Залишилось: ${state.urls.length} з ${state.max}`;
+}
+  function deleteJournalEntry(index, dateStr) {
+  let journal = JSON.parse(localStorage.getItem('journalPLC') || '[]');
+  const dayEntries = journal.filter(e => new Date(e.ts).toDateString() === dateStr).slice().reverse();
+  const target = dayEntries[index];
+  if (!target) return;
+  journal = journal.filter(e => e.ts !== target.ts);
+  localStorage.setItem('journalPLC', JSON.stringify(journal));
+  updateJournalCount();
+  renderJournalForDate();
+}
+  function startEditEntry(index, dateStr) {
+  let journal = JSON.parse(localStorage.getItem('journalPLC') || '[]');
+  const dayEntries = journal.filter(e => new Date(e.ts).toDateString() === dateStr).slice().reverse();
+  const e = dayEntries[index];
+  if (!e) return alert('Запис не знайдено');
+  if (!e.entryId) {
+    closeEntryActionsModal();
+    return alert('⚠️ Цей запис створено до оновлення застосунку і не має унікального ID — редагування недоступне для нього. Можна тільки видалити з журналу.');
+  }
+
+  editingEntryId = e.entryId;
+  editingJournalTs = e.ts;
+  currentAccount = e.account;
+
+  document.getElementById('viewAcc1').innerText = e.account;
+  document.getElementById('viewAcc2').innerText = e.account;
+  document.getElementById('viewPib1').innerText = e.pib || '';
+  document.getElementById('viewAddr1').innerText = e.address || '';
+
+  document.getElementById('remType').value = e.removedMeterType || '';
+  document.getElementById('remNum').value = e.removedMeterNumber || '';
+  document.getElementById('remT0').value = e.removedT0 || '';
+  document.getElementById('remT1').value = e.removedT1 || '';
+  document.getElementById('remT2').value = e.removedT2 || '';
+  document.getElementById('remT3').value = e.removedT3 || '';
+  document.getElementById('remLichil').value = e.removedLichil || '';
+  document.getElementById('remFasad1').value = e.removedFasad1 || '';
+  document.getElementById('remFasad2').value = e.removedFasad2 || '';
+  document.getElementById('remVkp').value = e.removedVkp || '';
+  document.getElementById('remOptop').value = e.removedOptop || '';
+  document.getElementById('remImp1').value = e.removedImp1 || '';
+  document.getElementById('remImp2').value = e.removedImp2 || '';
+  document.getElementById('remImp3').value = e.removedImp3 || '';
+  document.getElementById('remOther').value = e.removedOther || '';
+
+  document.getElementById('instType').value = e.installedMeterType || '';
+  document.getElementById('instNum').value = e.installedMeterNumber || '';
+  document.getElementById('instT0').value = e.installedT0 || '';
+  document.getElementById('instT1').value = e.installedT1 || '';
+  document.getElementById('instT2').value = e.installedT2 || '';
+  document.getElementById('instT3').value = e.installedT3 || '';
+  document.getElementById('instLichil').value = e.installedLichil || '';
+  document.getElementById('instFasad1').value = e.installedFasad1 || '';
+  document.getElementById('instFasad2').value = e.installedFasad2 || '';
+  document.getElementById('instVkp').value = e.installedVkp || '';
+  document.getElementById('instOptop').value = e.installedOptop || '';
+  document.getElementById('instImp1').value = e.installedImp1 || '';
+  document.getElementById('instImp2').value = e.installedImp2 || '';
+  document.getElementById('instImp3').value = e.installedImp3 || '';
+  document.getElementById('instOther').value = e.installedOther || '';
+
+  photoState.removed.urls = e.photoUrl ? e.photoUrl.split('\n').filter(u => u.trim()) : [];
+  photoState.installed.urls = e.installedPhotoUrl ? e.installedPhotoUrl.split('\n').filter(u => u.trim()) : [];
+  document.getElementById('photoUrl_removed').value = photoState.removed.urls.join('\n');
+  document.getElementById('photoUrl_installed').value = photoState.installed.urls.join('\n');
+  renderPhotoThumbnails('removed');
+  renderPhotoThumbnails('installed');
+
+  closeEntryActionsModal();
+  document.getElementById('journalModal').classList.add('hidden');
+  showScreen('step1');
+  document.getElementById('btnSaveMain').textContent = '💾 Зберегти зміни';
+}
+  function updateJournalEntryInPlace(payload) {
+  let journal = JSON.parse(localStorage.getItem('journalPLC') || '[]');
+  const idx = journal.findIndex(e => e.ts === editingJournalTs);
+  if (idx === -1) return;
+  journal[idx] = {
+    ...journal[idx],
+    account: payload.account || '',
+    pib: payload.pib || '',
+    address: payload.address || '',
+    removedMeterType: payload.removedMeterType || '',
+    removedMeterNumber: payload.removedMeterNumber || '',
+    removedT0: payload.removedT0 || '', removedT1: payload.removedT1 || '',
+    removedT2: payload.removedT2 || '', removedT3: payload.removedT3 || '',
+    installedMeterType: payload.installedMeterType || '',
+    installedMeterNumber: payload.installedMeterNumber || '',
+    installedLichil: payload.installedLichil || '',
+    installedFasad1: payload.installedFasad1 || '',
+    installedFasad2: payload.installedFasad2 || '',
+    installedVkp: payload.installedVkp || '',
+    installedOptop: payload.installedOptop || '',
+    installedImp1: payload.installedImp1 || '',
+    installedImp2: payload.installedImp2 || '',
+    installedImp3: payload.installedImp3 || '',
+    photoUrl: payload.photoUrl || '',
+    installedPhotoUrl: payload.installedPhotoUrl || ''
+  };
+  localStorage.setItem('journalPLC', JSON.stringify(journal));
+  updateJournalCount();
 }
   
 </script>
