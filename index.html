@@ -435,7 +435,7 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
 // ==========================================
 // ⚠️ ТУТ ВСТАВ ПОСИЛАННЯ З GOOGLE APPS SCRIPT
 // ==========================================
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw3q997q_PEJ02rO0PerbcWO8G3AFPXxhIOfJhFj89Hy2IMFX8bT3iih6S3oS3MKHol/exec"; 
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzxAEIzPlJtkqugSaQ8CFQqW6_bu8zeIhfzw1xM6RQ7QQsktt66tqqaHoB4XUoSA3rA-g/exec"; 
 
 // ==========================================
 // ОПТИМІЗОВАНИЙ МІСТ ДЛЯ ШВИДКОГО ЗВ'ЯЗКУ
@@ -905,6 +905,9 @@ function showScreen(id) {
   document.getElementById(id).classList.remove("hidden");
   window.scrollTo(0, 0);
 }
+  
+let photoReminderShown = { removed: false, installed: false };
+  
 function goHome() { 
   document.querySelectorAll('#step1 input, #step2 input, #step1 textarea, #step2 textarea').forEach(inp => inp.value = '');
   document.getElementById("account").value = "";
@@ -926,11 +929,17 @@ function resetPhotoUI() {
     document.getElementById('fileInput_' + slot).value = '';
     document.getElementById('cameraInput_' + slot).value = '';
   });
+  photoReminderShown = { removed: false, installed: false };
 }
   
 function goToStep2() { 
   const remT0 = document.getElementById("remT0").value.trim();
   if(!remT0) return alert("❌ Обов'язково введіть покази 'T' для ЗНЯТОГО лічильника!");
+
+  if (photoState.removed.urls.length === 0 && !photoReminderShown.removed) {
+    photoReminderShown.removed = true;
+    alert('📷 Зробіть фото або вставте фото знятого лічильника');
+  }
 
   showScreen('step2'); 
   document.getElementById("instType").value = "NIK2104 AP2T.1802.MC.11";
@@ -981,6 +990,11 @@ async function saveData() {
 
   const instNum = getVal("instNum");
   if(!instNum) return alert("❌ Обов'язково введіть Номер ВСТАНОВЛЕНОГО лічильника!");
+
+  if (photoState.installed.urls.length === 0 && !photoReminderShown.installed) {
+    photoReminderShown.installed = true;
+    alert('📷 Зробіть фото або вставте фото встановленого лічильника');
+  }
 
   const instT0 = getVal("instT0");
   if(!instT0) return alert("❌ Обов'язково введіть покази 'T' для ВСТАНОВЛЕНОГО лічильника!");
