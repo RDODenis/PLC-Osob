@@ -939,6 +939,7 @@ function goToStep2() {
   if (photoState.removed.urls.length === 0 && !photoReminderShown.removed) {
     photoReminderShown.removed = true;
     alert('📷 Зробіть фото або вставте фото знятого лічильника');
+    return;
   }
 
   showScreen('step2'); 
@@ -994,6 +995,7 @@ async function saveData() {
   if (photoState.installed.urls.length === 0 && !photoReminderShown.installed) {
     photoReminderShown.installed = true;
     alert('📷 Зробіть фото або вставте фото встановленого лічильника');
+    return;
   }
 
   const instT0 = getVal("instT0");
