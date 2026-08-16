@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#1565c0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-  
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Заміна лічильника</title>
@@ -1865,7 +1865,7 @@ async function uploadPhotoFile(file, slot) {
 
   let fileToUpload = file;
   try {
-    fileToUpload = await compressImage(file, 200, 1200);
+    fileToUpload = await compressImage(file, 100, 1200);
   } catch (e) {
     console.warn('Стиснення не вдалося, вантажимо оригінал:', e);
   }
