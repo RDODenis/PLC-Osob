@@ -80,6 +80,12 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
 #plombsModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 9999; display: flex; align-items: center; justify-content: center; }
 .plomb-card { background: #fff; padding: 20px; border-radius: 12px; width: 90%; max-width: 350px; text-align: center; }
 .plomb-list { max-height: 150px; overflow-y: auto; background: #f9f9f9; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin: 10px 0; text-align: left; font-size: 14px; color: #555; }
+.inventory-editor-row { display:flex; align-items:center; gap:4px; padding:4px 0; border-bottom:1px solid #eee; }
+.inventory-editor-row span { flex:1; font-weight:600; }
+.inventory-editor-row button { min-height:28px; width:30px; padding:0; margin:0; font-size:16px; }
+.inventory-editor-row .delete-one { background:#ffebee; color:#c62828; }
+.drag-handle { width:28px; min-width:28px; text-align:center; font-size:21px; color:#607D8B; cursor:grab; touch-action:none; user-select:none; }
+.inventory-editor-row.dragging { opacity:.55; background:#e3f2fd; }
 
 /* ПРОФЕСІЙНИЙ СКАНЕР */
 #scanner-wrapper { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 10000; align-items: center; justify-content: center; flex-direction: column; }
@@ -380,7 +386,7 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
     <div class="sectionLine"></div>
     <div style="font-weight:bold;">Доступні (<span id="plombsCountModal">0</span> шт):</div>
     <div class="plomb-list" id="plombListDiv">Немає доданих пломб</div>
-    
+    <button id="inventoryEditTogglePLC" onclick="toggleInventoryEditorPLC()" style="background:#607D8B; min-height:34px; margin:0 0 5px; font-size:14px;">✏️ Редагувати список</button>
     <button onclick="clearPlombs()" style="background: #e53935; min-height: 40px; margin-top:5px; font-size: 16px;">🗑 Очистити всі</button>
     <button class="btn-back" onclick="closePlombsModal()" style="min-height: 40px;">✖ Закрити</button>
   </div>
@@ -439,7 +445,7 @@ textarea { resize: none; overflow: hidden; font-size: 14px; }
 // ==========================================
 // ⚠️ ТУТ ВСТАВ ПОСИЛАННЯ З GOOGLE APPS SCRIPT
 // ==========================================
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyw5Y1I14NhLA8ez-EVOk4Bj5dDSXtsmo05FrK42kUHygVLkcV3DCp7bP_maIYRta3LeQ/exec"; 
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz5T-GlAH1PjHb0bRpTbGXk2QoW9aUANrR2WkLnxNcwTVDyjOT93RpyyhRPDCXQMu4ngw/exec"; 
 
 // ==========================================
 // ОПТИМІЗОВАНИЙ МІСТ ДЛЯ ШВИДКОГО ЗВ'ЯЗКУ
@@ -496,6 +502,8 @@ function canonicalizeMeterType(s) {
   if (!s) return '';
   // Ігноруємо пробіли, крапки й дефіси — всі три зустрічаються як роздільники непослідовно
   let str = s.toUpperCase().replace(/[\s.\-]+/g, '');
+  // У журналі префікс може бути кирилицею "НІК", а у Google Форми він "NIK".
+  str = str.replace(/^НІК/, 'NIK');
   const map = { 'А':'A','В':'B','Е':'E','К':'K','М':'M','Н':'H','О':'O','Р':'P','С':'C','Т':'T','Х':'X','У':'Y','І':'I' };
   return str.split('').map(ch => map[ch] || ch).join('');
 }
@@ -605,7 +613,7 @@ if (state === 'idle') {
     const remResult = normalizeMeterTypeForForm(e.removedMeterType);
     const instResult = normalizeMeterTypeForForm(e.installedMeterType);
     if (!remResult || !instResult) {
-      alert('ДІАГНОСТИКА:\nЗнятий (сирий): [' + e.removedMeterType + ']\nЗнятий (результат): [' + remResult + ']\n\nВстановлений (сирий): [' + e.installedMeterType + ']\nВстановлений (результат): [' + instResult + ']');
+      alert('ДІАГНОСТИКА:\nЗнятий (сирий): [' + (e.removedMeterType || '') + ']\nЗнятий (результат): [' + remResult + ']\n\nВстановлений (сирий): [' + (e.installedMeterType || '') + ']\nВстановлений (результат): [' + instResult + ']\n\nЗробіть скріншот цього повідомлення та відправте його розробнику. Це допоможе довести програму до ідеалу.');
     }
     window.open(buildGoogleFormUrl(e), '_blank');
     
@@ -674,6 +682,7 @@ window.onload = function() {
     document.getElementById("app").classList.remove("hidden");
     updateOfflineCount();
     updateJournalCount();
+    syncInventoryWithServerPLC(true);
 
     // ФОНОВА ПЕРЕВІРКА ДОСТУПУ!
     if (navigator.onLine) {
@@ -703,12 +712,88 @@ function logout() {
 // ==========================================
 let currentModalType = 'plomb';
 
+const INVENTORY_APP_PLC = "PLC";
+let inventorySyncRunningPLC = false;
+let inventoryClearRunningPLC = false;
+function getPendingInventoryPLC() { try { return JSON.parse(localStorage.getItem("inventoryPendingPLC") || "{\"plomb\":[],\"magnet\":[]}"); } catch(e) { return {plomb:[],magnet:[]}; } }
+function setPendingInventoryPLC(value) { localStorage.setItem("inventoryPendingPLC", JSON.stringify(value)); }
+function getPendingInventoryDeletePLC() { try { return JSON.parse(localStorage.getItem("inventoryPendingDeletePLC") || "{\"plomb\":[],\"magnet\":[]}"); } catch(e) { return {plomb:[],magnet:[]}; } }
+function setPendingInventoryDeletePLC(value) { localStorage.setItem("inventoryPendingDeletePLC", JSON.stringify(value)); }
+function getPendingInventoryOrderPLC() { try { return JSON.parse(localStorage.getItem("inventoryPendingOrderPLC") || "{\"plomb\":[],\"magnet\":[]}"); } catch(e) { return {plomb:[],magnet:[]}; } }
+function setPendingInventoryOrderPLC(value) { localStorage.setItem("inventoryPendingOrderPLC", JSON.stringify(value)); }
+function getPendingInventoryAddPLC() { try { return JSON.parse(localStorage.getItem("inventoryPendingAddPLC") || "{\"plomb\":[],\"magnet\":[]}"); } catch(e) { return {plomb:[],magnet:[]}; } }
+function setPendingInventoryAddPLC(value) { localStorage.setItem("inventoryPendingAddPLC", JSON.stringify(value)); }
+async function syncInventoryWithServerPLC(silent = true, additions = null) {
+  // Нові номери додаються окремою чергою. Старий локальний список ніколи не відправляємо.
+  if (additions) {
+    const pendingAdd = getPendingInventoryAddPLC();
+    pendingAdd.plomb = [...new Set([...(pendingAdd.plomb || []), ...(additions.plombs || [])])];
+    pendingAdd.magnet = [...new Set([...(pendingAdd.magnets || []) , ...(additions.magnets || [])])];
+    setPendingInventoryAddPLC(pendingAdd);
+  }
+  if (inventorySyncRunningPLC || inventoryClearRunningPLC || !navigator.onLine || !workerTab) return;
+  inventorySyncRunningPLC = true;
+  try {
+    const pending = getPendingInventoryPLC();
+    const pendingAdd = getPendingInventoryAddPLC();
+    const pendingDelete = getPendingInventoryDeletePLC();
+    const pendingOrder = getPendingInventoryOrderPLC();
+    const result = await sendToGoogle("inventorySync", {
+      worker: workerTab,
+      app: INVENTORY_APP_PLC,
+      addPlombs: pendingAdd.plomb || [],
+      addMagnets: pendingAdd.magnet || [],
+      pendingPlombs: pending.plomb || [],
+      pendingMagnets: pending.magnet || [],
+      pendingDeletePlombs: pendingDelete.plomb || [],
+      pendingDeleteMagnets: pendingDelete.magnet || [],
+      pendingOrderPlombs: pendingOrder.plomb || [],
+      pendingOrderMagnets: pendingOrder.magnet || []
+    });
+    if (result && result.success) {
+      localStorage.setItem("myPlombs", JSON.stringify(result.plomb || []));
+      localStorage.setItem("myMagnets", JSON.stringify(result.magnet || []));
+      setPendingInventoryPLC({plomb:[],magnet:[]});
+      setPendingInventoryAddPLC({plomb:[],magnet:[]});
+      setPendingInventoryDeletePLC({plomb:[],magnet:[]});
+      setPendingInventoryOrderPLC({plomb:[],magnet:[]});
+      updateCountersUI();
+      if (result.conflicts && result.conflicts.length && !silent) alert("⚠️ Конфлікт синхронізації: " + result.conflicts.map(x => x.number).join(", "));
+    }
+  } catch(e) {
+    // При слабкому інтернеті залишаємо локальний кеш і чергу нових номерів.
+  } finally { inventorySyncRunningPLC = false; }
+}
+async function consumeInventoryOnServerPLC(usedPlombs, usedMagnets) {
+  const uniquePlombs = [...new Set((usedPlombs || []).map(cleanPlomb).filter(Boolean))];
+  const uniqueMagnets = [...new Set((usedMagnets || []).map(cleanPlomb).filter(Boolean))];
+  const items=[...uniquePlombs.map(number=>({type:"plomb",number})), ...uniqueMagnets.map(number=>({type:"magnet",number}))];
+  if (!items.length) return;
+  if (!navigator.onLine) {
+    const pending=getPendingInventoryPLC();
+    pending.plomb=[...new Set([...(pending.plomb||[]),...uniquePlombs])];
+    pending.magnet=[...new Set([...(pending.magnet||[]),...uniqueMagnets])];
+    setPendingInventoryPLC(pending); return;
+  }
+  try {
+    const result=await sendToGoogle("inventoryConsume", {worker:workerTab,app:INVENTORY_APP_PLC,account:currentAccount||"",jobId:"",items});
+    if(result && result.success){
+      localStorage.setItem("myPlombs",JSON.stringify(result.plomb||[]));
+      localStorage.setItem("myMagnets",JSON.stringify(result.magnet||[]));
+      updateCountersUI();
+    }
+    // Невідомі номери не блокують збереження роботи.
+  } catch(e) { console.warn("Фонове оновлення інвентарю PLC:", e); }
+}
+
+
 function openPlombsModal(type) {
   currentModalType = type;
   document.getElementById("plombsModal").classList.remove("hidden");
   if (type === 'plomb') document.getElementById("modalTitle").innerText = "🧰 Додати пломби";
   else document.getElementById("modalTitle").innerText = "🧲 Додати магніти";
   updateCountersUI();
+  syncInventoryWithServerPLC(true).finally(updateCountersUI);
 }
 
 function closePlombsModal() {
@@ -745,17 +830,20 @@ function generatePlombs() {
   let storageKey = currentModalType === 'plomb' ? 'myPlombs' : 'myMagnets';
   let list = JSON.parse(localStorage.getItem(storageKey) || "[]");
   let addedCount = 0;
+  const newlyGenerated = [];
 
   for(let i = numStart; i <= numEnd; i++) {
     let numStr = i.toString().padStart(lengthStr, '0');
     let newPlomb = prefix + numStr;
     if(!list.includes(newPlomb)) {
       list.push(newPlomb);
+      newlyGenerated.push(newPlomb);
       addedCount++;
     }
   }
 
   localStorage.setItem(storageKey, JSON.stringify(list));
+  syncInventoryWithServerPLC(false, currentModalType === 'plomb' ? {plombs: newlyGenerated, magnets: []} : {plombs: [], magnets: newlyGenerated});
   document.getElementById("plombStart").value = "";
   document.getElementById("plombEnd").value = "";
   updateCountersUI();
@@ -764,28 +852,132 @@ function generatePlombs() {
   else alert("Ці елементи вже були у списку.");
 }
 
+let inventoryEditorPLC = false;
+let activeInventoryDragPLC = null;
+function escapeInventoryTextPLC(value) { return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
+function toggleInventoryEditorPLC() {
+  inventoryEditorPLC = !inventoryEditorPLC;
+  const button = document.getElementById("inventoryEditTogglePLC");
+  if (button) button.textContent = inventoryEditorPLC ? "✅ Завершити редагування" : "✏️ Редагувати список";
+  updateCountersUI();
+}
+function getInventoryListPLC(type) { return JSON.parse(localStorage.getItem(type === "plomb" ? "myPlombs" : "myMagnets") || "[]"); }
+function setInventoryListPLC(type, list) { localStorage.setItem(type === "plomb" ? "myPlombs" : "myMagnets", JSON.stringify(list)); }
+function queueInventoryOrderPLC(type, list) { const pending = getPendingInventoryOrderPLC(); pending[type] = list.slice(); setPendingInventoryOrderPLC(pending); }
+async function persistInventoryOrderPLC(type, list) {
+  queueInventoryOrderPLC(type, list);
+  if (!navigator.onLine || !workerTab) return;
+  try {
+    const result = await sendToGoogle("inventoryReorder", { worker: workerTab, type, order: list, app: INVENTORY_APP_PLC });
+    if (result && result.success) {
+      setInventoryListPLC("plomb", result.plomb || []); setInventoryListPLC("magnet", result.magnet || []);
+      const pending = getPendingInventoryOrderPLC(); pending[type] = []; setPendingInventoryOrderPLC(pending); updateCountersUI();
+    }
+  } catch(e) {}
+}
+function finishInventoryDragPLC() {
+  if (!activeInventoryDragPLC) return;
+  const { row, type, move, up } = activeInventoryDragPLC;
+  document.removeEventListener("pointermove", move);
+  document.removeEventListener("pointerup", up);
+  row.classList.remove("dragging");
+  const list = [...document.querySelectorAll("#plombListDiv .inventory-editor-row")].map(item => item.dataset.value);
+  setInventoryListPLC(type, list);
+  activeInventoryDragPLC = null;
+  updateCountersUI();
+  persistInventoryOrderPLC(type, list);
+}
+function startInventoryDragPLC(event, row) {
+  if (!inventoryEditorPLC) return;
+  event.preventDefault();
+  if (activeInventoryDragPLC) finishInventoryDragPLC();
+  const type = currentModalType;
+  row.classList.add("dragging");
+  const move = function(ev) {
+    ev.preventDefault();
+    const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest("#plombListDiv .inventory-editor-row");
+    if (!target || target === row) return;
+    const rect = target.getBoundingClientRect();
+    if (ev.clientY < rect.top + rect.height / 2) target.parentNode.insertBefore(row, target);
+    else target.parentNode.insertBefore(row, target.nextSibling);
+  };
+  const up = function() { finishInventoryDragPLC(); };
+  activeInventoryDragPLC = { row, type, move, up };
+  document.addEventListener("pointermove", move, { passive:false });
+  document.addEventListener("pointerup", up, { once:true });
+}
+async function deleteInventoryItemsPLC(numbers) {
+  const type = currentModalType;
+  const clean = [...new Set((numbers || []).map(cleanPlomb).filter(Boolean))];
+  if (!clean.length) return;
+  setInventoryListPLC(type, getInventoryListPLC(type).filter(value => !clean.includes(value)));
+  const pendingDelete = getPendingInventoryDeletePLC();
+  pendingDelete[type] = [...new Set([...(pendingDelete[type] || []), ...clean])]; setPendingInventoryDeletePLC(pendingDelete);
+  const pendingAdd = getPendingInventoryAddPLC(); pendingAdd[type] = (pendingAdd[type] || []).filter(value => !clean.includes(value)); setPendingInventoryAddPLC(pendingAdd);
+  updateCountersUI();
+  if (navigator.onLine && workerTab) {
+    try {
+      const result = await sendToGoogle("inventoryDelete", { worker: workerTab, type, numbers: clean, app: INVENTORY_APP_PLC });
+      if (result && result.success) {
+        setInventoryListPLC("plomb", result.plomb || []); setInventoryListPLC("magnet", result.magnet || []);
+        pendingDelete[type] = (pendingDelete[type] || []).filter(value => !clean.includes(value)); setPendingInventoryDeletePLC(pendingDelete); updateCountersUI();
+      }
+    } catch(e) {}
+  }
+}
 function updateCountersUI() {
-  let plombs = JSON.parse(localStorage.getItem("myPlombs") || "[]");
-  let magnets = JSON.parse(localStorage.getItem("myMagnets") || "[]");
-  
+  let plombs = getInventoryListPLC("plomb");
+  let magnets = getInventoryListPLC("magnet");
   document.getElementById("plombsCountBtn").innerText = plombs.length;
   document.getElementById("magnetsCountBtn").innerText = magnets.length;
-  
   let listDiv = document.getElementById("plombListDiv");
   let activeList = currentModalType === 'plomb' ? plombs : magnets;
-  
   document.getElementById("plombsCountModal").innerText = activeList.length;
-
-  if(activeList.length === 0) listDiv.innerHTML = "Список порожній.";
-  else listDiv.innerHTML = activeList.join(", ");
+  if(!activeList.length) { listDiv.innerHTML = "Список порожній."; return; }
+  if(!inventoryEditorPLC) { listDiv.textContent = activeList.join(", "); return; }
+  listDiv.innerHTML = activeList.map((value) => `<div class="inventory-editor-row" data-value="${escapeInventoryTextPLC(value)}"><span class="drag-handle" onpointerdown="startInventoryDragPLC(event,this.parentElement)" title="Перетягнути">⋮⋮</span><span>${escapeInventoryTextPLC(value)}</span><button class="delete-one" onclick="deleteInventoryItemsPLC(['${String(value).replace(/'/g, "\\'")}'])" title="Видалити">✕</button></div>`).join("");
 }
+async function clearPlombs() {
+  if (!confirm("Ви впевнені, що хочете очистити цей список?")) return;
+  // Якщо додавання ще синхронізується, дочекаємося його завершення.
+  while (inventorySyncRunningPLC) await new Promise(resolve => setTimeout(resolve, 100));
+  inventoryClearRunningPLC = true;
+  const storageKey = currentModalType === 'plomb' ? 'myPlombs' : 'myMagnets';
+  const pendingAdd = getPendingInventoryAddPLC();
+  if (currentModalType === 'plomb') pendingAdd.plomb = [];
+  else pendingAdd.magnet = [];
+  setPendingInventoryAddPLC(pendingAdd);
+  const pendingDelete = getPendingInventoryDeletePLC();
+  const pendingOrder = getPendingInventoryOrderPLC();
+  pendingDelete[currentModalType] = [];
+  pendingOrder[currentModalType] = [];
+  setPendingInventoryDeletePLC(pendingDelete);
+  setPendingInventoryOrderPLC(pendingOrder);
+  localStorage.setItem(storageKey, "[]");
+  updateCountersUI();
 
-function clearPlombs() {
-  if(confirm("Ви впевнені, що хочете очистити цей список?")) {
-    let storageKey = currentModalType === 'plomb' ? 'myPlombs' : 'myMagnets';
-    localStorage.removeItem(storageKey);
-    updateCountersUI();
-  }
+  // Спочатку видаляємо список на сервері. Не запускаємо паралельний inventorySync,
+  // інакше старий список може повернутися з сервера до завершення очищення.
+  try {
+    if (navigator.onLine && workerTab) {
+      const result = await sendToGoogle("inventoryClear", {
+        worker: workerTab,
+        type: currentModalType,
+        app: INVENTORY_APP_PLC
+      });
+      if (result && result.success) {
+          localStorage.setItem("myPlombs", JSON.stringify(result.plomb || []));
+          localStorage.setItem("myMagnets", JSON.stringify(result.magnet || []));
+          updateCountersUI();
+        } else if (result && result.message) {
+          alert("Не вдалося очистити список: " + result.message);
+        }
+      }
+    } catch (e) {
+      console.error("Помилка очищення пломб:", e);
+    } finally {
+      inventoryClearRunningPLC = false;
+    }
 }
 
 function getCurrentlyUsed(type) {
@@ -852,6 +1044,7 @@ function removeUsedPlombs(usedPlombs, usedMagnets) {
   localStorage.setItem("myPlombs", JSON.stringify(newPlombs));
   localStorage.setItem("myMagnets", JSON.stringify(newMagnets));
   updateCountersUI();
+  consumeInventoryOnServerPLC(cPlombs, cMagnets);
 }
 
 // ==========================================
@@ -992,6 +1185,7 @@ async function doLogin() {
       document.getElementById("app").classList.remove("hidden");
       updateOfflineCount();
       updateJournalCount();
+      syncInventoryWithServerPLC(true);
     } else {
       alert(res.message);
     }
@@ -1203,6 +1397,10 @@ if (dupInst) {
   const entryId = editingEntryId || generateEntryId();
 
   const payload = {
+    // PLC працює у режимі заміни лічильника.
+    mode: "replace",
+    workType: "Заміна лічильника",
+    replaceReason: "ІП (PLC)",
     worker: workerTab,
     entryId: entryId,
     pib: document.getElementById("viewPib1").innerText,
@@ -1225,7 +1423,8 @@ if (dupInst) {
     installedPhotoUrl: document.getElementById('photoUrl_installed').value.trim()
   };
   
-  removeUsedPlombs([l.inst, f1.inst, f2.inst, vkp.inst, opt.inst], [imp1.inst, imp2.inst, imp3.inst]);
+  const usedPlombsForInventory = [l.inst, f1.inst, f2.inst, vkp.inst, opt.inst];
+  const usedMagnetsForInventory = [imp1.inst, imp2.inst, imp3.inst];
 
   const btn = document.getElementById("btnSaveMain");
   const hint = document.getElementById("saveHint");
@@ -1237,6 +1436,7 @@ if (dupInst) {
       const res = await sendToGoogle('updateData', { data: payload });
       if (res && res.success) {
         updateJournalEntryInPlace(payload);
+        removeUsedPlombs(usedPlombsForInventory, usedMagnetsForInventory);
         playSuccessSound();
         hint.innerText = "✅ Запис оновлено!";
         setTimeout(() => {
@@ -1265,6 +1465,7 @@ if (dupInst) {
     offlineData.push(payload);
     localStorage.setItem('offlineDataPLC', JSON.stringify(offlineData));
     addToJournal(payload, 'offline');
+    removeUsedPlombs(usedPlombsForInventory, usedMagnetsForInventory);
     playSuccessSound();
     hint.innerText = "✅ Збережено ОФЛАЙН!";
     setTimeout(() => { btn.style.display = "block"; goHome(); }, 1500);
@@ -1275,6 +1476,7 @@ if (dupInst) {
     const res = await sendToGoogle("saveData", { data: payload });
     if(res.success) {
       addToJournal(payload, 'online');
+      removeUsedPlombs(usedPlombsForInventory, usedMagnetsForInventory);
       playSuccessSound();
       hint.innerText = "✅ Дані успішно збережено!";
       setTimeout(() => { btn.style.display = "block"; goHome(); }, 1500);
@@ -2081,4 +2283,6 @@ async function removePhoto(slot, index) {
   updateJournalCount();
 }
   
+
+window.addEventListener("online", () => { if (typeof syncInventoryWithServerPLC === "function") syncInventoryWithServerPLC(true); });
 </script>
